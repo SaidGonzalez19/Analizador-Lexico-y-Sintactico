@@ -1,0 +1,14 @@
+PROGRAMA
+[id]
+[id]
+=
+[val]
+SI
+[id]
+[op_rel]
+[val]
+ENTONCES
+IMPRIME
+[txt]
+FINSI
+FINPROG

@@ -1,0 +1,13 @@
+IDS
+caso4, ID01
+x, ID02
+y, ID03
+TXT
+"x mayor que y", TX01
+"y mayor o igual", TX02
+"Iterando", TX03
+"FIN DEL PROGRAMA", TX04
+VAL
+0x05, 5
+0x01, 1
+0x00, 0

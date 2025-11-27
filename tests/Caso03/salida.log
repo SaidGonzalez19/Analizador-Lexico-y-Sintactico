@@ -1,0 +1,7 @@
+=== ANALISIS LEXICO ===
+Análisis léxico exitoso. Archivos generados: C:\Users\kobaz\OneDrive - Universidad Autonoma de Yucatan\Programacion Orientada a Objeto\Analizador-Lexico-y-Sintactico\tests\Caso03\pruebas3.lex y C:\Users\kobaz\OneDrive - Universidad Autonoma de Yucatan\Programacion Orientada a Objeto\Analizador-Lexico-y-Sintactico\tests\Caso03\pruebas3.sim
+
+
+=== ANALISIS SINTACTICO ===
+Error sintáctico: se esperaba 'FINPROG' pero se encontró 'EOF' en posición 8
+

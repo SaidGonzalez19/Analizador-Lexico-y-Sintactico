@@ -1,0 +1,17 @@
+PROGRAMA caso4
+x = 0x05
+y = 0x01
+
+SI x > y ENTONCES
+    IMPRIME "x mayor que y"
+SINO
+    IMPRIME "y mayor o igual"
+FINSI
+
+MIENTRAS x > 0x00 HACER
+    IMPRIME "Iterando"
+    x = x - 0x01
+FINM
+
+IMPRIME "FIN DEL PROGRAMA"
+FINPROG

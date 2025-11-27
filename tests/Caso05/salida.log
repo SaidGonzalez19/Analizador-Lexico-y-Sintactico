@@ -1,0 +1,7 @@
+=== ANALISIS LEXICO ===
+Análisis léxico exitoso. Archivos generados: C:\Users\kobaz\OneDrive - Universidad Autonoma de Yucatan\Programacion Orientada a Objeto\Analizador-Lexico-y-Sintactico\tests\Caso05\pruebas5.lex y C:\Users\kobaz\OneDrive - Universidad Autonoma de Yucatan\Programacion Orientada a Objeto\Analizador-Lexico-y-Sintactico\tests\Caso05\pruebas5.sim
+
+
+=== ANALISIS SINTACTICO ===
+Error sintáctico: Error en sentencia SI (posición 9): sentencia desconocida que inicia con 'FINPROG' en posición 16
+

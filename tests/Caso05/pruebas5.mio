@@ -1,0 +1,8 @@
+PROGRAMA caso5
+a = 0x03
+b = 0x01
+
+SI a > b ENTONCES
+IMPRIME "A es mayor"
+
+FINPROG
