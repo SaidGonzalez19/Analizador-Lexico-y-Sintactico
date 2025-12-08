@@ -1,216 +1,182 @@
-"""
-anasin.py - Analizador sintáctico para el lenguaje MIO.
-
-Uso:
-    python anasin.py programa.lex
-
-Lee la secuencia de tokens del archivo .lex y verifica que
-cumpla con la gramática dada en la práctica. Imprime:
-
-    Compilación exitosa
-
-si todo está bien, o un mensaje de error sintáctico en caso contrario.
-"""
-
-from dataclasses import dataclass
-from typing import List
 import sys
-import os
 
+# Lista de tokens y posición actual (las usamos como "globales" para mantenerlo simple)
+tokens = []
+posicion = 0
 
-@dataclass
-class PToken:
-    value: str  # token tal como aparece en el .lex (PROGRAMA, [id], etc.)
-    pos: int    # índice en la secuencia (0-based)
+def token_actual():
+    global posicion, tokens
+    if posicion < len(tokens):
+        return tokens[posicion]
+    else:
+        return "EOF"
 
+def avanzar():
+    global posicion
+    posicion += 1
 
-class ParseError(Exception):
-    pass
+def aceptar(esperado):
+    """
+    Si el token actual es 'esperado', avanza y regresa True.
+    Si no, regresa False y no avanza.
+    """
+    if token_actual() == esperado:
+        avanzar()
+        return True
+    return False
 
-
-class Parser:
-    def __init__(self, tokens: List[PToken]):
-        self.tokens = tokens
-        self.pos = 0
-
-    # utilidades básicas -------------------------------------------------
-    def current(self) -> PToken:
-        if self.pos < len(self.tokens):
-            return self.tokens[self.pos]
-        return PToken("EOF", len(self.tokens))
-
-    def accept(self, value: str) -> bool:
-        if self.current().value == value:
-            self.pos += 1
-            return True
-        return False
-
-    def expect(self, value: str):
-        if not self.accept(value):
-            tok = self.current()
-            raise ParseError(
-                f"se esperaba '{value}' pero se encontró '{tok.value}' "
-                f"en posición {tok.pos + 1}"
-            )
-
-    # punto de entrada ---------------------------------------------------
-    def parse(self):
-        self.PROG()
-        if self.current().value != "EOF":
-            raise ParseError(
-                f"tokens extra después de FINPROG "
-                f"(token '{self.current().value}' en posición {self.current().pos + 1})"
-            )
-
-    # Gramática ----------------------------------------------------------
-    # <PROG> → PROGRAMA [id] <SENTS> FINPROG
-    def PROG(self):
-        self.expect("PROGRAMA")
-        self.expect("[id]")
-        self.SENTS(stop_tokens={"FINPROG"})
-        self.expect("FINPROG")
-
-    # <SENTS> → <SENT> <SENTS> | <SENT>
-    # Implementado como: cero o más <SENT> hasta encontrar un token de parada
-    def SENTS(self, stop_tokens: set):
-        while self.current().value not in stop_tokens and self.current().value != "EOF":
-            self.SENT()
-
-    # Selección de tipo de sentencia por el primer token
-    def SENT(self):
-        tok = self.current()
-        if tok.value == "[id]":
-            self.sent_asignacion()
-        elif tok.value == "SI":
-            self.sent_si()
-        elif tok.value == "MIENTRAS":
-            self.sent_mientras()
-        elif tok.value == "IMPRIME":
-            self.sent_imprime()
-        elif tok.value == "LEE":
-            self.sent_lee()
-        else:
-            raise ParseError(
-                f"sentencia desconocida que inicia con '{tok.value}' "
-                f"en posición {tok.pos + 1}"
-            )
-
-    # [id] = <EXPR>
-    def sent_asignacion(self):
-        inicio = self.current().pos
-        try:
-            self.expect("[id]")
-            self.expect("=")
-            self.EXPR()
-        except ParseError as e:
-            raise ParseError(f"Error en sentencia de asignación (posición {inicio + 1}): {e}")
-
-    # SI <COMPARA> ENTONCES <SENTS> SINO <SENTS> FINSI
-    # SI <COMPARA> ENTONCES <SENTS> FINSI
-    def sent_si(self):
-        inicio = self.current().pos
-        try:
-            self.expect("SI")
-            self.COMPARA()
-            self.expect("ENTONCES")
-            # bloque "then"
-            self.SENTS(stop_tokens={"SINO", "FINSI"})
-            # bloque opcional "else"
-            if self.accept("SINO"):
-                self.SENTS(stop_tokens={"FINSI"})
-            self.expect("FINSI")
-        except ParseError as e:
-            raise ParseError(f"Error en sentencia SI (posición {inicio + 1}): {e}")
-
-    # MIENTRAS <COMPARA> HACER <SENTS> FINM
-    def sent_mientras(self):
-        inicio = self.current().pos
-        try:
-            self.expect("MIENTRAS")
-            self.COMPARA()
-            self.expect("HACER")
-            self.SENTS(stop_tokens={"FINM"})
-            self.expect("FINM")
-        except ParseError as e:
-            raise ParseError(f"Error en sentencia MIENTRAS (posición {inicio + 1}): {e}")
-
-    # IMPRIME <EXPR> | IMPRIME [txt]
-    def sent_imprime(self):
-        inicio = self.current().pos
-        try:
-            self.expect("IMPRIME")
-            # puede ser texto literal...
-            if self.accept("[txt]"):
-                return
-            # ...o una expresión
-            self.EXPR()
-        except ParseError as e:
-            raise ParseError(f"Error en sentencia IMPRIME (posición {inicio + 1}): {e}")
-
-    # LEE [id]
-    def sent_lee(self):
-        inicio = self.current().pos
-        try:
-            self.expect("LEE")
-            self.expect("[id]")
-        except ParseError as e:
-            raise ParseError(f"Error en sentencia LEE (posición {inicio + 1}): {e}")
-
-    # <EXPR> → <FAC> [op_ar] <FAC>|<FAC>
-    def EXPR(self):
-        self.FAC()
-        if self.accept("[op_ar]"):
-            self.FAC()
-
-    # <FAC> → [id] | [val]
-    def FAC(self):
-        if self.accept("[id]"):
-            return
-        if self.accept("[val]"):
-            return
-        raise ParseError(
-            f"se esperaba [id] o [val] en expresión, se encontró "
-            f"'{self.current().value}' en posición {self.current().pos + 1}"
+def esperar(esperado):
+    """
+    Igual que aceptar, pero si no coincide lanza un error sintáctico.
+    """
+    if not aceptar(esperado):
+        mensaje = "se esperaba '{}' pero se encontró '{}'".format(
+            esperado, token_actual()
         )
+        raise Exception(mensaje)
 
-    # <COMPARA> → [id] [op_rel] <EXPR>
-    def COMPARA(self):
-        self.expect("[id]")
-        self.expect("[op_rel]")
-        self.EXPR()
+# ------------ Reglas de la gramática ------------
 
+# <PROG> → PROGRAMA [id] <SENTS> FINPROG
+def PROG():
+    esperar("PROGRAMA")
+    esperar("[id]")
+    SENTS(stop_tokens=["FINPROG"])
+    esperar("FINPROG")
 
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv[1:]
+# <SENTS> → <SENT> <SENTS> | <SENT>
+# Lo hacemos como: repetir <SENT> hasta encontrar un token de paro
+def SENTS(stop_tokens):
+    while True:
+        t = token_actual()
+        if t in stop_tokens or t == "EOF":
+            break
+        SENT()
 
-    if len(argv) != 1:
-        print("Uso: python anasin.py <archivo.lex>")
-        raise SystemExit(1)
+# Selección del tipo de sentencia por el primer token
+def SENT():
+    t = token_actual()
 
-    lex_path = argv[0]
-    if not os.path.isfile(lex_path):
-        print(f"No se encontró el archivo: {lex_path}")
-        raise SystemExit(1)
+    if t == "[id]":
+        sent_asignacion()
+    elif t == "SI":
+        sent_si()
+    elif t == "MIENTRAS":
+        sent_mientras()
+    elif t == "IMPRIME":
+        sent_imprime()
+    elif t == "LEE":
+        sent_lee()
+    # La gramática menciona: <SENT> → # [comentario],
+    # pero en el .lex no se guardan comentarios, así que aquí no los vemos.
+    else:
+        raise Exception("sentencia desconocida que inicia con '{}'".format(t))
 
-    with open(lex_path, "r", encoding="utf-8") as f:
-        text = f.read()
+# <SENT> → [id] = <EXPR>
+def sent_asignacion():
+    esperar("[id]")
+    esperar("=")
+    EXPR()
 
-    tokens: List[PToken] = []
-    for line in text.splitlines():
-        tok = line.strip()
-        if not tok:
-            continue
-        tokens.append(PToken(tok, len(tokens)))
-    tokens.append(PToken("EOF", len(tokens)))
+# <SENT> → SI <COMPARA> ENTONCES <SENTS> SINO <SENTS> FINSI
+# <SENT> → SI <COMPARA> ENTONCES <SENTS> FINSI
+def sent_si():
+    esperar("SI")
+    COMPARA()
+    esperar("ENTONCES")
+    # bloque then
+    SENTS(stop_tokens=["SINO", "FINSI"])
+    # bloque else opcional
+    if aceptar("SINO"):
+        SENTS(stop_tokens=["FINSI"])
+    esperar("FINSI")
 
-    parser = Parser(tokens)
+# <SENT> → MIENTRAS <COMPARA> HACER <SENTS> FINM
+def sent_mientras():
+    esperar("MIENTRAS")
+    COMPARA()
+    esperar("HACER")
+    SENTS(stop_tokens=["FINM"])
+    esperar("FINM")
+
+# <SENT> → IMPRIME <EXPR>
+# <SENT> → IMPRIME [txt]
+def sent_imprime():
+    esperar("IMPRIME")
+    # Puede ser texto literal...
+    if aceptar("[txt]"):
+        return
+    # ...o una expresión
+    EXPR()
+
+# <SENT> → LEE [id]
+def sent_lee():
+    esperar("LEE")
+    esperar("[id]")
+
+# <EXPR> → <FAC> [op_ar] <FAC> | <FAC>
+def EXPR():
+    FAC()
+    if aceptar("[op_ar]"):
+        FAC()
+
+# <FAC> → [id]
+# <FAC> → [val]
+def FAC():
+    if aceptar("[id]"):
+        return
+    if aceptar("[val]"):
+        return
+    mensaje = "se esperaba [id] o [val] en expresión, se encontró '{}'".format(
+        token_actual()
+    )
+    raise Exception(mensaje)
+
+# <COMPARA> → [id] [op_rel] <EXPR>
+def COMPARA():
+    esperar("[id]")
+    esperar("[op_rel]")
+    EXPR()
+
+# ------------ Función principal ------------
+
+def main():
+    global tokens, posicion
+
+    if len(sys.argv) != 2:
+        print("Uso: python anasin.py programa.lex")
+        return
+
+    nombre_lex = sys.argv[1]
+
     try:
-        parser.parse()
-        print("Compilación exitosa")
-    except ParseError as e:
-        print(f"Error sintáctico: {e}")
+        with open(nombre_lex, "r", encoding="utf-8") as f:
+            lineas = f.readlines()
+    except FileNotFoundError:
+        print("No se pudo abrir el archivo:", nombre_lex)
+        return
 
+    # Cargar tokens del .lex (un token por línea)
+    tokens = []
+    for linea in lineas:
+        tok = linea.strip()
+        if tok != "":
+            tokens.append(tok)
+
+    # Empezar desde el primer token
+    posicion = 0
+
+    try:
+        PROG()
+        # Después de PROG ya no debe haber tokens extra
+        if token_actual() != "EOF" and posicion != len(tokens):
+            raise Exception("tokens extra después de FINPROG: '{}'".format(token_actual()))
+        print("Compilación exitosa")
+    except Exception as e:
+        # Mensaje de error simple
+        print("Error sintáctico:", e)
+        print("Compilación no exitosa")
 
 if __name__ == "__main__":
+    # Agregamos un token EOF lógico al final al evaluar token_actual()
     main()

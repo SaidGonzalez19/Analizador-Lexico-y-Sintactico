@@ -1,0 +1,12 @@
+PROGRAMA ops
+x = 0x0F
+y = 0x0A
+z = 0x01
+
+x = x + y
+y = y - z
+z = x / y
+x = x * z
+
+IMPRIME "OK"
+FINPROG

@@ -1,243 +1,217 @@
-"""
-ANALIZADOR LÉXICO PRO PARA MIO
--------------------------------------------------------------
-Características:
-- Acepta líneas vacías
-- Acepta tabs, espacios, indentación variada
-- Acepta comentarios al inicio o en mitad de línea
-- Modo DEBUG activable desde variable global
-- Errores léxicos con línea, columna y lexema
-- Manejo seguro de BOM (archivos UTF-8 con BOM)
--------------------------------------------------------------
-"""
-
-DEBUG = False   # Cambiar a True si quieres ver tokens en consola
-
-from dataclasses import dataclass
-import os
 import sys
 
-RESERVED = {
+# Palabras reservadas del lenguaje MIO (de la hoja del proyecto)
+RESERVADAS = [
     "PROGRAMA", "FINPROG",
     "SI", "ENTONCES", "SINO", "FINSI",
     "MIENTRAS", "HACER", "FINM",
     "IMPRIME", "LEE"
-}
+]
 
-@dataclass
-class Token:
-    kind: str
-    lexeme: str
-    line: int
-    col: int
+def es_letra(c):
+    return ('a' <= c <= 'z') or ('A' <= c <= 'Z')
 
-class Lexer:
-    def __init__(self, source: str):
-        self.lines = source.splitlines()
-        self.tokens = []
-        self.errors = []
-        self.ids = {}
-        self.txts = {}
-        self.vals = {}
-        self.debug_output = []
+def es_digito(c):
+    return '0' <= c <= '9'
 
-    # -------------------------------------------------------
-    def log(self, msg):
-        if DEBUG:
-            print(msg)
-        self.debug_output.append(msg)
+def es_hex(c):
+    c = c.upper()
+    return ('0' <= c <= '9') or ('A' <= c <= 'F')
 
-    # -------------------------------------------------------
-    def run(self):
-        for lineno, raw_line in enumerate(self.lines, start=1):
-            line = raw_line.replace("\ufeff", "")  # eliminar BOM
-            # cortar comentarios en mitad de línea
-            if "#" in line:
-                idx = line.index("#")
-                line = line[:idx]
+def procesar_linea(linea, num_linea, tokens, ids, txts, vals, errores):
+    """
+    Analiza una línea de texto y agrega tokens o errores a las listas.
+    """
+    i = 0
+    n = len(linea)
 
-            stripped = line.strip()
-            if stripped == "":
-                continue
+    # Ignorar línea si es comentario (# al inicio) o está vacía
+    linea_sin_espacios = linea.lstrip()
+    if linea_sin_espacios == "" or linea_sin_espacios.startswith("#"):
+        return
 
-            self.tokenize_line(line, lineno)
+    while i < n:
+        c = linea[i]
 
-    # -------------------------------------------------------
-    def tokenize_line(self, line, lineno):
-        i = 0
-        n = len(line)
+        # Saltar espacios y tabs
+        if c.isspace():
+            i += 1
+            continue
 
-        while i < n:
-            ch = line[i]
-
-            # saltar whitespace interno
-            if ch.isspace():
+        # Literales de texto: " ... "
+        if c == '"':
+            inicio_col = i + 1
+            i += 1
+            texto = ""
+            while i < n and linea[i] != '"':
+                texto += linea[i]
                 i += 1
-                continue
-
-            col = i + 1
-
-            # ---------------------------------------------------
-            # LITERAL DE TEXTO
-            # ---------------------------------------------------
-            if ch == '"':
-                j = i + 1
-                literal = []
-                while j < n and line[j] != '"':
-                    literal.append(line[j])
-                    j += 1
-                if j >= n:
-                    self.add_error("literal de texto sin cierre", lineno, col)
-                    return
-                txt = "".join(literal)
-                if txt not in self.txts:
-                    self.txts[txt] = f"TX{len(self.txts)+1:02d}"
-                self.add_token("TXT", txt, lineno, col)
-                i = j + 1
-                continue
-
-            # ---------------------------------------------------
-            # IDENTIFICADOR O PALABRA RESERVADA
-            # ---------------------------------------------------
-            if ch.isalpha():
-                j = i + 1
-                while j < n and line[j].isalnum():
-                    j += 1
-                lex = line[i:j]
-                if len(lex) > 16:
-                    self.add_error(f"identificador demasiado largo: '{lex}'", lineno, col)
-                    i = j
-                    continue
-                if lex in RESERVED:
-                    self.add_token(lex, lex, lineno, col)
-                else:
-                    if lex not in self.ids:
-                        self.ids[lex] = f"ID{len(self.ids)+1:02d}"
-                    self.add_token("ID", lex, lineno, col)
-                i = j
-                continue
-
-            # ---------------------------------------------------
-            # NÚMERO HEXADECIMAL
-            # ---------------------------------------------------
-            if ch == "0" and i+1 < n and line[i+1] in ("x", "X"):
-                j = i + 2
-                while j < n and (line[j].isdigit() or line[j].upper() in "ABCDEF"):
-                    j += 1
-                lex = line[i:j]
-                if len(lex) <= 2:
-                    self.add_error("hexadecimal sin dígitos", lineno, col)
-                else:
-                    norm = "0x" + lex[2:].upper()
-                    dec = int(norm[2:], 16)
-                    if norm not in self.vals:
-                        self.vals[norm] = (norm, dec)
-                    self.add_token("VAL", norm, lineno, col)
-                i = j
-                continue
-
-            # ---------------------------------------------------
-            # OPERADORES RELACIONALES DOBLES
-            # ---------------------------------------------------
-            two = line[i:i+2]
-            if two in ("<=", ">=", "<>", "=="):
-                self.add_token("OP_REL", two, lineno, col)
-                i += 2
-                continue
-
-            # ---------------------------------------------------
-            # OPERADORES RELACIONALES SIMPLES
-            # ---------------------------------------------------
-            if ch in ("<", ">"):
-                self.add_token("OP_REL", ch, lineno, col)
-                i += 1
-                continue
-
-            # ---------------------------------------------------
-            # ASIGNACIÓN
-            # ---------------------------------------------------
-            if ch == "=":
-                self.add_token("ASIG", "=", lineno, col)
-                i += 1
-                continue
-
-            # ---------------------------------------------------
-            # OPERADORES ARITMÉTICOS
-            # ---------------------------------------------------
-            if ch in "+-*/":
-                self.add_token("OP_AR", ch, lineno, col)
-                i += 1
-                continue
-
-            # ---------------------------------------------------
-            # CUALQUIER OTRA COSA = ERROR
-            # ---------------------------------------------------
-            self.add_error(f"carácter no reconocido '{ch}'", lineno, col)
+            if i >= n:
+                errores.append("Error léxico en línea {}: literal de texto sin cierre".format(num_linea))
+                return
+            # Saltar la comilla de cierre
             i += 1
 
-    # -------------------------------------------------------
-    def add_token(self, kind, lexeme, line, col):
-        self.tokens.append(Token(kind, lexeme, line, col))
-        self.log(f"[TOKEN] {kind} '{lexeme}' en línea {line}, col {col}")
+            # Guardar en tabla TXT si es nuevo
+            if texto not in txts:
+                indice = len(txts) + 1
+                codigo = "TX{:02d}".format(indice)
+                txts[texto] = codigo
 
-    def add_error(self, msg, line, col):
-        full = f"Error léxico: {msg} (línea {line}, col {col})"
-        self.errors.append(full)
-        self.log("[ERROR] " + full)
+            tokens.append("[txt]")
+            continue
 
-    # -------------------------------------------------------
-    # SALIDA .LEX Y .SIM
-    # -------------------------------------------------------
-    def write_outputs(self, base):
-        lex = base + ".lex"
-        sim = base + ".sim"
+        # Palabras: pueden ser reservadas o identificadores
+        if es_letra(c):
+            inicio = i
+            while i < n and (es_letra(linea[i]) or es_digito(linea[i])):
+                i += 1
+            lexema = linea[inicio:i]
 
-        with open(lex, "w", encoding="utf-8") as f:
-            for t in self.tokens:
-                if t.kind == "ID": f.write("[id]\n")
-                elif t.kind == "VAL": f.write("[val]\n")
-                elif t.kind == "TXT": f.write("[txt]\n")
-                elif t.kind == "OP_REL": f.write("[op_rel]\n")
-                elif t.kind == "OP_AR": f.write("[op_ar]\n")
-                elif t.kind == "ASIG": f.write("=\n")
-                else: f.write(t.kind + "\n")
+            # Reservada o identificador
+            if lexema in RESERVADAS:
+                tokens.append(lexema)
+            else:
+                # Verificar longitud de identificador (máx 16)
+                if len(lexema) > 16:
+                    errores.append(
+                        "Error léxico en línea {}: identificador demasiado largo '{}'".format(num_linea, lexema)
+                    )
+                    # seguimos analizando la línea
+                    continue
 
-        with open(sim, "w", encoding="utf-8") as f:
-            f.write("IDS\n")
-            for name, code in self.ids.items():
-                f.write(f"{name}, {code}\n")
-            f.write("TXT\n")
-            for txt, code in self.txts.items():
-                f.write(f"\"{txt}\", {code}\n")
-            f.write("VAL\n")
-            for hexv, (norm, dec) in self.vals.items():
-                f.write(f"{norm}, {dec}\n")
+                # Guardar en tabla IDS si es nuevo
+                if lexema not in ids:
+                    indice = len(ids) + 1
+                    codigo = "ID{:02d}".format(indice)
+                    ids[lexema] = codigo
 
-        if DEBUG:
-            open(base + "_debug.log", "w").write("\n".join(self.debug_output))
+                tokens.append("[id]")
+            continue
 
+        # Literales numéricas hexadecimales: 0x...
+        if c == '0' and i + 1 < n and linea[i + 1] == 'x':
+            inicio = i
+            i += 2  # saltar '0x'
+            if i >= n or not es_hex(linea[i]):
+                errores.append("Error léxico en línea {}: literal hexadecimal sin dígitos".format(num_linea))
+                return
 
+            while i < n and es_hex(linea[i]):
+                i += 1
+
+            lexema = linea[inicio:i]  # por ejemplo "0x1" o "0xA"
+            # Guardar en tabla VAL si es nuevo
+            if lexema not in vals:
+                valor_decimal = int(lexema[2:], 16)
+                vals[lexema] = valor_decimal
+            tokens.append("[val]")
+            continue
+
+        # Operadores relacionales: >=, <=, <>, >, <, ==
+        if c == '<' or c == '>':
+            if i + 1 < n:
+                dos = c + linea[i + 1]
+                if dos == "<=" or dos == ">=" or dos == "<>":
+                    tokens.append("[op_rel]")
+                    i += 2
+                    continue
+            # Si no fue doble, es simple < o >
+            tokens.append("[op_rel]")
+            i += 1
+            continue
+
+        # '=' puede ser asignación o parte de '=='
+        if c == '=':
+            if i + 1 < n and linea[i + 1] == '=':
+                tokens.append("[op_rel]")  # ==
+                i += 2
+            else:
+                tokens.append("=")  # asignación
+                i += 1
+            continue
+
+        # Operadores aritméticos: + - * /
+        if c in ['+', '-', '*', '/']:
+            tokens.append("[op_ar]")
+            i += 1
+            continue
+
+        # Si llegamos aquí, el carácter no es válido en el lenguaje
+        errores.append(
+            "Error léxico en línea {}: carácter no reconocido '{}'".format(num_linea, c)
+        )
+        i += 1  # avanzar para no quedarse atorado
+
+def escribir_archivos(base, tokens, ids, txts, vals):
+    """
+    Escribe los archivos base.lex y base.sim
+    """
+    nombre_lex = base + ".lex"
+    nombre_sim = base + ".sim"
+
+    # .lex: un token por línea en el orden que se detectaron
+    with open(nombre_lex, "w", encoding="utf-8") as f:
+        for t in tokens:
+            f.write(t + "\n")
+
+    # .sim: IDS, TXT, VAL en ese orden, como en el ejemplo del PDF
+    with open(nombre_sim, "w", encoding="utf-8") as f:
+        f.write("IDS\n")
+        for nombre, codigo in ids.items():
+            f.write("{}, {}\n".format(nombre, codigo))
+
+        f.write("TXT\n")
+        for texto, codigo in txts.items():
+            f.write("\"{}\", {}\n".format(texto, codigo))
+
+        f.write("VAL\n")
+        for lexema_hex, dec in vals.items():
+            f.write("{}, {}\n".format(lexema_hex, dec))
 
 def main():
-    if len(sys.argv) != 1 and len(sys.argv) != 2:
-        print("Uso: python analex.py archivo.mio")
+    if len(sys.argv) != 2:
+        print("Uso: python analex.py programa.mio")
         return
 
-    src = sys.argv[1]
-    base, _ = os.path.splitext(src)
-    text = open(src, encoding="utf-8").read()
+    nombre_archivo = sys.argv[1]
 
-    L = Lexer(text)
-    L.run()
+    # Sacar el nombre base para .lex y .sim (por ejemplo "factorial" de "factorial.mio")
+    if nombre_archivo.endswith(".mio"):
+        base = nombre_archivo[:-4]
+    else:
+        base = nombre_archivo
 
-    if L.errors:
-        print("\n".join(L.errors))
-        print("Análisis detenido por errores.")
+    try:
+        with open(nombre_archivo, "r", encoding="utf-8") as f:
+            lineas = f.readlines()
+    except FileNotFoundError:
+        print("No se pudo abrir el archivo:", nombre_archivo)
         return
 
-    L.write_outputs(base)
-    print(f"Análisis léxico exitoso. Archivos generados: {base}.lex y {base}.sim")
+    tokens = []
+    ids = {}   # nombre -> IDxx
+    txts = {}  # texto -> TXxx
+    vals = {}  # "0x.." -> valor decimal
+    errores = []
 
+    # Analizar línea por línea
+    num_linea = 1
+    for linea in lineas:
+        procesar_linea(linea.rstrip("\n"), num_linea, tokens, ids, txts, vals, errores)
+        num_linea += 1
+
+    # Revisar si hubo errores
+    if len(errores) > 0:
+        for e in errores:
+            print(e)
+        print("Análisis léxico no exitoso.")
+        return
+
+    # Si no hubo errores, escribir archivos .lex y .sim
+    escribir_archivos(base, tokens, ids, txts, vals)
+    print("Análisis léxico exitoso.")
+    print("Se generaron los archivos {}.lex y {}.sim".format(base, base))
 
 if __name__ == "__main__":
     main()
